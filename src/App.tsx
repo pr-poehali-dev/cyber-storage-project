@@ -366,7 +366,7 @@ function StorageScreen({ user }: { user: User }) {
 }
 
 // ============ CHATS ============
-function ChatsScreen({ user }: { user: User }) {
+function ChatsScreen({ user, onNewMessage }: { user: User; onNewMessage?: () => void }) {
   const [activeChat, setActiveChat] = useState<ChatUser | null>(null);
   const [messages, setMessages] = useState(INIT_MESSAGES);
   const [contacts, setContacts] = useState<ChatUser[]>(MOCK_USERS);
@@ -392,6 +392,7 @@ function ChatsScreen({ user }: { user: User }) {
     setTimeout(() => {
       const reply: Message = { id: Date.now().toString()+'r', from: activeChat.login, text: '[ E2E зашифровано · Доставлено ]', time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) };
       setMessages(prev => ({ ...prev, [activeChat.id]: [...(prev[activeChat.id] || []), reply] }));
+      onNewMessage?.();
     }, 1200);
   };
 
@@ -775,11 +776,17 @@ export default function App() {
   const [authed, setAuthed] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [screen, setScreen] = useState<Screen>('storage');
+  const [unreadCount, setUnreadCount] = useState(2);
 
   const handleLogin = (user: User) => { setCurrentUser(user); setAuthed(true); setScreen('storage'); };
   const handleLogout = () => { setCurrentUser(null); setAuthed(false); };
   const handleDeleteAccount = () => { setCurrentUser(null); setAuthed(false); };
   const handleChangePassword = (newPwd: string) => { if (!currentUser) return; setCurrentUser(prev => prev ? { ...prev, password: newPwd } : null); };
+
+  const handleOpenChats = () => {
+    setScreen('chats');
+    setUnreadCount(0);
+  };
 
   const NAV = [
     { id: 'storage' as Screen, label: 'Хранилище', icon: 'Database' },
@@ -810,7 +817,7 @@ export default function App() {
       <main className="relative z-10 flex-1 overflow-hidden p-3 pb-0" style={{ minHeight: 0 }}>
         <div className="h-full">
           {screen === 'storage' && currentUser && <StorageScreen user={currentUser} />}
-          {screen === 'chats' && currentUser && <ChatsScreen user={currentUser} />}
+          {screen === 'chats' && currentUser && <ChatsScreen user={currentUser} onNewMessage={() => { if (screen !== 'chats') setUnreadCount(c => c + 1); }} />}
           {screen === 'search' && <SearchScreen />}
           {screen === 'settings' && currentUser && <SettingsScreen user={currentUser} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} onChangePassword={handleChangePassword} />}
           {screen === 'profile' && currentUser && <ProfileScreen user={currentUser} />}
@@ -819,8 +826,20 @@ export default function App() {
 
       <nav className="relative z-10 flex-shrink-0 border-t border-neon-purple/20 bg-dark-card/95 backdrop-blur flex justify-around px-2 py-1">
         {NAV.map(item => (
-          <button key={item.id} onClick={() => setScreen(item.id)} className={`nav-item ${screen === item.id ? 'active' : ''}`}>
-            <Icon name={item.icon} size={20} />
+          <button
+            key={item.id}
+            onClick={() => item.id === 'chats' ? handleOpenChats() : setScreen(item.id)}
+            className={`nav-item ${screen === item.id ? 'active' : ''}`}
+          >
+            <div className="relative">
+              <Icon name={item.icon} size={20} />
+              {item.id === 'chats' && unreadCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-0.5 bg-red-500 rounded-full flex items-center justify-center font-orbitron text-white leading-none animate-neon-pulse"
+                  style={{ fontSize: '9px', boxShadow: '0 0 6px #ff003c' }}>
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
+            </div>
             {item.label}
           </button>
         ))}
