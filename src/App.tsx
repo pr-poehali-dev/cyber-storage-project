@@ -384,6 +384,29 @@ function ChatsScreen({ user, onNewMessage }: { user: User; onNewMessage?: () => 
     return () => document.removeEventListener('click', close);
   }, []);
 
+  const playNotificationSound = () => {
+    try {
+      const ctx = new (window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)();
+      const sequence = [
+        { freq: 880, start: 0, dur: 0.08 },
+        { freq: 1320, start: 0.1, dur: 0.1 },
+        { freq: 1760, start: 0.22, dur: 0.15 },
+      ];
+      sequence.forEach(({ freq, start, dur }) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+        gain.gain.setValueAtTime(0, ctx.currentTime + start);
+        gain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + start + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+        osc.start(ctx.currentTime + start);
+        osc.stop(ctx.currentTime + start + dur);
+      });
+    } catch (e) { void e; }
+  };
+
   const sendMessage = (msg: string) => {
     if (!activeChat || !msg.trim()) return;
     const newMsg: Message = { id: Date.now().toString(), from: 'me', text: msg, time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) };
@@ -392,6 +415,7 @@ function ChatsScreen({ user, onNewMessage }: { user: User; onNewMessage?: () => 
     setTimeout(() => {
       const reply: Message = { id: Date.now().toString()+'r', from: activeChat.login, text: '[ E2E зашифровано · Доставлено ]', time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) };
       setMessages(prev => ({ ...prev, [activeChat.id]: [...(prev[activeChat.id] || []), reply] }));
+      playNotificationSound();
       onNewMessage?.();
     }, 1200);
   };
