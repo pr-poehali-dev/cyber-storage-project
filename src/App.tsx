@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import Icon from '@/components/ui/icon';
 
 // ============ TYPES ============
@@ -174,7 +174,7 @@ function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
 }
 
 // ============ STORAGE ============
-function StorageScreen({ user }: { user: User }) {
+function StorageScreen({ user: _user }: { user: User }) {
   const [currentFolder, setCurrentFolder] = useState('root');
   const [folders, setFolders] = useState<FolderItem[]>(MOCK_FOLDERS);
   const [files, setFiles] = useState<FileItem[]>(MOCK_FILES);
@@ -187,17 +187,35 @@ function StorageScreen({ user }: { user: User }) {
   const [contextMenu, setContextMenu] = useState<{ file: FileItem; x: number; y: number } | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (uploadTimerRef.current) clearTimeout(uploadTimerRef.current);
+    };
+  }, []);
 
   const usedPct = 41;
   const folderFiles = currentFolder === 'root'
     ? files.filter(f => f.folder === 'root' || !folders.find(fld => fld.name === f.folder))
     : files.filter(f => f.folder === currentFolder);
 
+  // Сброс выбранного файла при смене папки
+  const handleFolderChange = (folder: string) => {
+    setCurrentFolder(folder);
+    setSelectedFile(null);
+    setContextMenu(null);
+  };
+
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
-    setTimeout(() => {
+    uploadTimerRef.current = setTimeout(() => {
+      if (!mountedRef.current) return;
       const ext = file.name.split('.').pop() || '';
       const type = ['jpg','jpeg','png','gif','webp'].includes(ext) ? 'image' : ['mp4','webm'].includes(ext) ? 'video' : ['mp3','wav'].includes(ext) ? 'audio' : ext === 'pdf' ? 'pdf' : 'doc';
       setFiles(prev => [...prev, { id: Date.now().toString(), name: file.name, type, size: `${(file.size/1024/1024).toFixed(1)} MB`, date: new Date().toLocaleDateString('ru'), folder: currentFolder }]);
@@ -247,12 +265,12 @@ function StorageScreen({ user }: { user: User }) {
       </div>
 
       <div className="flex gap-2 mb-2 flex-wrap flex-shrink-0">
-        <button onClick={() => setCurrentFolder('root')} className={`cyber-btn text-xs py-1.5 px-3 ${currentFolder === 'root' ? '' : 'cyber-btn-cyan'}`}>
+        <button onClick={() => handleFolderChange('root')} className={`cyber-btn text-xs py-1.5 px-3 ${currentFolder === 'root' ? '' : 'cyber-btn-cyan'}`}>
           <Icon name="Home" size={10} className="inline mr-1" />ROOT
         </button>
         {folders.map(fld => (
           <div key={fld.id} className="flex items-center">
-            <button onClick={() => setCurrentFolder(fld.name)} className={`cyber-btn text-xs py-1.5 px-3 ${currentFolder === fld.name ? '' : 'cyber-btn-cyan'}`}>
+            <button onClick={() => handleFolderChange(fld.name)} className={`cyber-btn text-xs py-1.5 px-3 ${currentFolder === fld.name ? '' : 'cyber-btn-cyan'}`}>
               <Icon name="Folder" size={10} className="inline mr-1" />{fld.name.toUpperCase()}
             </button>
             <button onClick={() => handleDeleteFolder(fld.id)} className="text-red-500 hover:text-red-300 px-1.5 text-xs">×</button>
@@ -365,28 +383,48 @@ function StorageScreen({ user }: { user: User }) {
   );
 }
 
+// Singleton AudioContext для звуков
+let _audioCtx: AudioContext | null = null;
+function getAudioCtx(): AudioContext {
+  if (!_audioCtx || _audioCtx.state === 'closed') {
+    _audioCtx = new (window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)();
+  }
+  return _audioCtx;
+}
+
 // ============ CHATS ============
-function ChatsScreen({ user, onNewMessage }: { user: User; onNewMessage?: () => void }) {
+function ChatsScreen({ user: _user, onNewMessage }: { user: User; onNewMessage?: () => void }) {
   const [activeChat, setActiveChat] = useState<ChatUser | null>(null);
   const [messages, setMessages] = useState(INIT_MESSAGES);
-  const [contacts, setContacts] = useState<ChatUser[]>(MOCK_USERS);
+  const [contacts] = useState<ChatUser[]>(MOCK_USERS);
   const [blockedIds, setBlockedIds] = useState<string[]>([]);
   const [text, setText] = useState('');
   const [showAttach, setShowAttach] = useState(false);
   const [userMenu, setUserMenu] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ type: 'delete' | 'block' | 'unblock'; userId: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const mountedRef = useRef(true);
+  const replyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (replyTimerRef.current) clearTimeout(replyTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [activeChat, messages]);
+
   useEffect(() => {
     const close = () => setUserMenu(null);
     document.addEventListener('click', close);
     return () => document.removeEventListener('click', close);
   }, []);
 
-  const playNotificationSound = () => {
+  const playNotificationSound = useCallback(() => {
     try {
-      const ctx = new (window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)();
+      const ctx = getAudioCtx();
       const sequence = [
         { freq: 880, start: 0, dur: 0.08 },
         { freq: 1320, start: 0.1, dur: 0.1 },
@@ -405,20 +443,22 @@ function ChatsScreen({ user, onNewMessage }: { user: User; onNewMessage?: () => 
         osc.stop(ctx.currentTime + start + dur);
       });
     } catch (e) { void e; }
-  };
+  }, []);
 
-  const sendMessage = (msg: string) => {
+  const sendMessage = useCallback((msg: string) => {
     if (!activeChat || !msg.trim()) return;
     const newMsg: Message = { id: Date.now().toString(), from: 'me', text: msg, time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) };
     setMessages(prev => ({ ...prev, [activeChat.id]: [...(prev[activeChat.id] || []), newMsg] }));
     setText('');
-    setTimeout(() => {
+    setShowAttach(false);
+    replyTimerRef.current = setTimeout(() => {
+      if (!mountedRef.current) return;
       const reply: Message = { id: Date.now().toString()+'r', from: activeChat.login, text: '[ E2E зашифровано · Доставлено ]', time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) };
       setMessages(prev => ({ ...prev, [activeChat.id]: [...(prev[activeChat.id] || []), reply] }));
       playNotificationSound();
       onNewMessage?.();
     }, 1200);
-  };
+  }, [activeChat, playNotificationSound, onNewMessage]);
 
   const handleDeleteChat = (userId: string) => {
     setMessages(prev => ({ ...prev, [userId]: [] }));
@@ -653,12 +693,16 @@ function SettingsScreen({ user, onLogout, onDeleteAccount, onChangePassword }: {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
+  const resetPasswordFields = () => { setOldPwd(''); setNewPwd(''); setNewPwd2(''); setError(''); setSuccess(''); };
+
   const handleChangePwd = () => {
     setError(''); setSuccess('');
     if (oldPwd !== user.password) { setError('Неверный текущий пароль'); return; }
     if (newPwd !== newPwd2) { setError('Пароли не совпадают'); return; }
     if (newPwd.length < 6) { setError('Минимум 6 символов'); return; }
-    onChangePassword(newPwd); setSuccess('Пароль изменён ✓'); setOldPwd(''); setNewPwd(''); setNewPwd2('');
+    onChangePassword(newPwd);
+    setSuccess('Пароль изменён ✓');
+    setOldPwd(''); setNewPwd(''); setNewPwd2(''); setConfirmPwd('');
   };
 
   const MENU = [
@@ -684,7 +728,7 @@ function SettingsScreen({ user, onLogout, onDeleteAccount, onChangePassword }: {
       )}
       {section === 'password' && (
         <div className="cyber-card p-6 animate-scale-in">
-          <button onClick={() => { setSection('main'); setError(''); setSuccess(''); }} className="font-mono-tech text-xs text-muted-foreground hover:text-neon-cyan mb-4 flex items-center gap-1"><Icon name="ArrowLeft" size={12} />НАЗАД</button>
+          <button onClick={() => { setSection('main'); resetPasswordFields(); }} className="font-mono-tech text-xs text-muted-foreground hover:text-neon-cyan mb-4 flex items-center gap-1"><Icon name="ArrowLeft" size={12} />НАЗАД</button>
           <div className="font-orbitron text-xs neon-text-cyan mb-4">СМЕНА ПАРОЛЯ</div>
           <div className="space-y-3">
             {([['// ТЕКУЩИЙ ПАРОЛЬ', oldPwd, setOldPwd], ['// НОВЫЙ ПАРОЛЬ', newPwd, setNewPwd], ['// ПОДТВЕРДИТЬ НОВЫЙ', newPwd2, setNewPwd2]] as [string, string, React.Dispatch<React.SetStateAction<string>>][]).map(([label, val, set]) => (
@@ -721,7 +765,7 @@ function SettingsScreen({ user, onLogout, onDeleteAccount, onChangePassword }: {
       )}
       {section === 'logout' && (
         <div className="cyber-card p-6 animate-scale-in">
-          <button onClick={() => { setSection('main'); setError(''); }} className="font-mono-tech text-xs text-muted-foreground hover:text-neon-cyan mb-4 flex items-center gap-1"><Icon name="ArrowLeft" size={12} />НАЗАД</button>
+          <button onClick={() => { setSection('main'); setError(''); setConfirmPwd(''); }} className="font-mono-tech text-xs text-muted-foreground hover:text-neon-cyan mb-4 flex items-center gap-1"><Icon name="ArrowLeft" size={12} />НАЗАД</button>
           <div className="font-orbitron text-xs neon-text-cyan mb-4 flex items-center gap-2"><Icon name="LogOut" size={14} />ВЫХОД ИЗ АККАУНТА</div>
           <div className="font-mono-tech text-xs text-muted-foreground mb-3">Подтвердите выход паролем:</div>
           <input className="cyber-input mb-3" type="password" placeholder="Пароль..." value={confirmPwd} onChange={e => { setConfirmPwd(e.target.value); setError(''); }} />
@@ -731,7 +775,7 @@ function SettingsScreen({ user, onLogout, onDeleteAccount, onChangePassword }: {
       )}
       {section === 'delete' && (
         <div className="cyber-card p-6 animate-scale-in border border-red-900/50">
-          <button onClick={() => { setSection('main'); setError(''); }} className="font-mono-tech text-xs text-muted-foreground hover:text-neon-cyan mb-4 flex items-center gap-1"><Icon name="ArrowLeft" size={12} />НАЗАД</button>
+          <button onClick={() => { setSection('main'); setError(''); setConfirmPwd(''); }} className="font-mono-tech text-xs text-muted-foreground hover:text-neon-cyan mb-4 flex items-center gap-1"><Icon name="ArrowLeft" size={12} />НАЗАД</button>
           <div className="font-orbitron text-xs text-red-400 mb-2 flex items-center gap-2"><Icon name="AlertTriangle" size={14} />УДАЛЕНИЕ АККАУНТА</div>
           <div className="font-mono-tech text-xs text-red-400/70 mb-4">⚠ Необратимое действие. Все данные будут уничтожены.</div>
           <input className="cyber-input mb-3" type="password" placeholder="Подтвердите паролем..." value={confirmPwd} onChange={e => { setConfirmPwd(e.target.value); setError(''); }} />
