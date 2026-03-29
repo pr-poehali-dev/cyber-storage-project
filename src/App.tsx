@@ -369,11 +369,20 @@ function StorageScreen({ user }: { user: User }) {
 function ChatsScreen({ user }: { user: User }) {
   const [activeChat, setActiveChat] = useState<ChatUser | null>(null);
   const [messages, setMessages] = useState(INIT_MESSAGES);
+  const [contacts, setContacts] = useState<ChatUser[]>(MOCK_USERS);
+  const [blockedIds, setBlockedIds] = useState<string[]>([]);
   const [text, setText] = useState('');
   const [showAttach, setShowAttach] = useState(false);
+  const [userMenu, setUserMenu] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ type: 'delete' | 'block' | 'unblock'; userId: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [activeChat, messages]);
+  useEffect(() => {
+    const close = () => setUserMenu(null);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, []);
 
   const sendMessage = (msg: string) => {
     if (!activeChat || !msg.trim()) return;
@@ -386,27 +395,100 @@ function ChatsScreen({ user }: { user: User }) {
     }, 1200);
   };
 
+  const handleDeleteChat = (userId: string) => {
+    setMessages(prev => ({ ...prev, [userId]: [] }));
+    if (activeChat?.id === userId) setActiveChat(null);
+    setConfirmAction(null);
+  };
+
+  const handleBlockUser = (userId: string) => {
+    setBlockedIds(prev => [...prev, userId]);
+    if (activeChat?.id === userId) setActiveChat(null);
+    setConfirmAction(null);
+  };
+
+  const handleUnblockUser = (userId: string) => {
+    setBlockedIds(prev => prev.filter(id => id !== userId));
+    setConfirmAction(null);
+  };
+
+  const isBlocked = (userId: string) => blockedIds.includes(userId);
+
   return (
-    <div className="h-full flex gap-3">
+    <div className="h-full flex gap-3" onClick={() => setUserMenu(null)}>
       <div className={`${activeChat ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-48 flex-shrink-0`}>
         <div className="font-orbitron text-xs neon-text-purple mb-3 flex items-center gap-2 flex-shrink-0">
           <Icon name="MessageSquare" size={12} />КОНТАКТЫ
         </div>
         <div className="cyber-card flex-1 overflow-y-auto">
-          {MOCK_USERS.map(u => (
-            <button key={u.id} onClick={() => setActiveChat(u)} className={`w-full text-left p-3 flex items-center gap-3 border-b border-border hover:bg-purple-900/20 transition-all ${activeChat?.id === u.id ? 'bg-purple-900/30' : ''}`}>
-              <div className="relative">
-                <div className="w-8 h-8 rounded-sm bg-dark-panel neon-border-purple flex items-center justify-center font-orbitron text-xs text-neon-purple">{u.login[0].toUpperCase()}</div>
-                {u.online && <div className="status-online absolute -bottom-0.5 -right-0.5" />}
-              </div>
-              <div>
-                <div className="font-rajdhani text-sm text-neon-cyan">{u.login}</div>
-                <div className="font-mono-tech text-xs text-muted-foreground">{u.online ? 'ONLINE' : 'OFFLINE'}</div>
-              </div>
-            </button>
+          {contacts.map(u => (
+            <div key={u.id} className={`relative flex items-center gap-3 p-3 border-b border-border transition-all ${activeChat?.id === u.id ? 'bg-purple-900/30' : 'hover:bg-purple-900/20'} ${isBlocked(u.id) ? 'opacity-40' : ''}`}>
+              <button className="flex items-center gap-3 flex-1 min-w-0 text-left" onClick={() => !isBlocked(u.id) && setActiveChat(u)}>
+                <div className="relative flex-shrink-0">
+                  <div className="w-8 h-8 rounded-sm bg-dark-panel neon-border-purple flex items-center justify-center font-orbitron text-xs text-neon-purple">{u.login[0].toUpperCase()}</div>
+                  {u.online && !isBlocked(u.id) && <div className="status-online absolute -bottom-0.5 -right-0.5" />}
+                </div>
+                <div className="min-w-0">
+                  <div className="font-rajdhani text-sm text-neon-cyan truncate">{u.login}</div>
+                  <div className="font-mono-tech text-xs text-muted-foreground">{isBlocked(u.id) ? 'ЗАБЛОКИРОВАН' : u.online ? 'ONLINE' : 'OFFLINE'}</div>
+                </div>
+              </button>
+              <button
+                className="flex-shrink-0 text-muted-foreground hover:text-neon-cyan p-1 transition-colors"
+                onClick={e => { e.stopPropagation(); setUserMenu(userMenu === u.id ? null : u.id); }}
+              >
+                <Icon name="MoreVertical" size={14} />
+              </button>
+              {userMenu === u.id && (
+                <div className="absolute right-0 top-10 z-50 cyber-card w-44 py-1 animate-scale-in" onClick={e => e.stopPropagation()}>
+                  <button onClick={() => { setConfirmAction({ type: 'delete', userId: u.id }); setUserMenu(null); }} className="w-full text-left px-3 py-2 font-rajdhani text-sm flex items-center gap-2 hover:bg-purple-900/30 transition-colors text-neon-cyan">
+                    <Icon name="Trash2" size={12} className="text-red-400" />Удалить чат
+                  </button>
+                  {isBlocked(u.id) ? (
+                    <button onClick={() => { setConfirmAction({ type: 'unblock', userId: u.id }); setUserMenu(null); }} className="w-full text-left px-3 py-2 font-rajdhani text-sm flex items-center gap-2 hover:bg-purple-900/30 transition-colors neon-text-green">
+                      <Icon name="UserCheck" size={12} />Разблокировать
+                    </button>
+                  ) : (
+                    <button onClick={() => { setConfirmAction({ type: 'block', userId: u.id }); setUserMenu(null); }} className="w-full text-left px-3 py-2 font-rajdhani text-sm flex items-center gap-2 hover:bg-purple-900/30 transition-colors text-red-400">
+                      <Icon name="UserX" size={12} />Заблокировать
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           ))}
         </div>
       </div>
+
+      {/* Confirm modal */}
+      {confirmAction && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 animate-fade-in" onClick={() => setConfirmAction(null)}>
+          <div className="cyber-modal rounded p-6 w-72 animate-scale-in" onClick={e => e.stopPropagation()}>
+            <div className={`font-orbitron text-xs mb-3 flex items-center gap-2 ${confirmAction.type === 'unblock' ? 'neon-text-green' : 'text-red-400'}`}>
+              <Icon name={confirmAction.type === 'delete' ? 'Trash2' : confirmAction.type === 'block' ? 'UserX' : 'UserCheck'} size={14} />
+              {confirmAction.type === 'delete' ? 'УДАЛИТЬ ЧАТ' : confirmAction.type === 'block' ? 'ЗАБЛОКИРОВАТЬ' : 'РАЗБЛОКИРОВАТЬ'}
+            </div>
+            <div className="font-mono-tech text-xs text-muted-foreground mb-5">
+              {confirmAction.type === 'delete' && 'Вся история переписки будет удалена безвозвратно.'}
+              {confirmAction.type === 'block' && 'Пользователь не сможет отправлять вам сообщения.'}
+              {confirmAction.type === 'unblock' && 'Пользователь снова сможет писать вам.'}
+            </div>
+            <div className="flex gap-2">
+              <button
+                className={`cyber-btn flex-1 text-xs ${confirmAction.type === 'unblock' ? 'cyber-btn-green' : 'cyber-btn-red'}`}
+                onClick={() => {
+                  if (confirmAction.type === 'delete') handleDeleteChat(confirmAction.userId);
+                  else if (confirmAction.type === 'block') handleBlockUser(confirmAction.userId);
+                  else handleUnblockUser(confirmAction.userId);
+                }}
+              >
+                ПОДТВЕРДИТЬ
+              </button>
+              <button className="cyber-btn cyber-btn-cyan flex-1 text-xs" onClick={() => setConfirmAction(null)}>ОТМЕНА</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {activeChat ? (
         <div className="flex-1 flex flex-col min-w-0 animate-slide-in-right">
@@ -418,6 +500,24 @@ function ChatsScreen({ user }: { user: User }) {
               <div className={`font-mono-tech text-xs ${activeChat.online ? 'neon-text-green' : 'text-muted-foreground'}`}>{activeChat.online ? '● ONLINE' : '○ OFFLINE'}</div>
             </div>
             <span className="hex-badge border-neon-green text-neon-green ml-auto text-xs">E2E</span>
+            <div className="relative ml-2">
+              <button
+                className="text-muted-foreground hover:text-neon-cyan p-1 transition-colors"
+                onClick={e => { e.stopPropagation(); setUserMenu(userMenu === activeChat.id + '_header' ? null : activeChat.id + '_header'); }}
+              >
+                <Icon name="MoreVertical" size={16} />
+              </button>
+              {userMenu === activeChat.id + '_header' && (
+                <div className="absolute right-0 top-8 z-50 cyber-card w-44 py-1 animate-scale-in" onClick={e => e.stopPropagation()}>
+                  <button onClick={() => { setConfirmAction({ type: 'delete', userId: activeChat.id }); setUserMenu(null); }} className="w-full text-left px-3 py-2 font-rajdhani text-sm flex items-center gap-2 hover:bg-purple-900/30 text-neon-cyan">
+                    <Icon name="Trash2" size={12} className="text-red-400" />Удалить чат
+                  </button>
+                  <button onClick={() => { setConfirmAction({ type: 'block', userId: activeChat.id }); setUserMenu(null); }} className="w-full text-left px-3 py-2 font-rajdhani text-sm flex items-center gap-2 hover:bg-purple-900/30 text-red-400">
+                    <Icon name="UserX" size={12} />Заблокировать
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="cyber-card flex-1 overflow-y-auto p-4 flex flex-col gap-2 min-h-0">
